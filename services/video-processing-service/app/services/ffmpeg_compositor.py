@@ -582,3 +582,87 @@ class FFmpegCompositor:
 
         except Exception as e:
             raise CompositionError(f"Failed to concatenate segments: {str(e)}")
+
+    def add_subtitles(
+        self,
+        video_path: str,
+        subtitle_file: str,
+        output_path: str,
+        style: str = "bottom"
+    ) -> str:
+        """
+        Add burned-in subtitles to a video
+
+        Args:
+            video_path: Path to input video
+            subtitle_file: Path to subtitle file (ASS/SRT format)
+            output_path: Path for output video with subtitles
+            style: Subtitle style preset ("bottom", "top", "center")
+
+        Returns:
+            Path to video with subtitles
+
+        Raises:
+            CompositionError: If adding subtitles fails
+            FileNotFoundError: If input files don't exist
+        """
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+        if not os.path.exists(subtitle_file):
+            raise FileNotFoundError(f"Subtitle file not found: {subtitle_file}")
+
+        print(f"\n[FFmpeg] ===== ADDING SUBTITLES =====")
+        print(f"[FFmpeg] Video: {video_path}")
+        print(f"[FFmpeg] Subtitles: {subtitle_file}")
+        print(f"[FFmpeg] Style: {style}")
+
+        # Detect subtitle format
+        subtitle_ext = os.path.splitext(subtitle_file)[1].lower()
+
+        try:
+            if subtitle_ext == '.ass':
+                # Use ASS subtitles with full styling support
+                command = [
+                    'ffmpeg',
+                    '-y',
+                    '-i', video_path,
+                    '-vf', f"ass={subtitle_file}",
+                    '-c:a', 'copy',  # Copy audio stream
+                    output_path
+                ]
+            else:  # SRT or VTT
+                # Use subtitles filter for SRT/VTT
+                # Escape subtitle file path for FFmpeg
+                escaped_subtitle = subtitle_file.replace('\\', '/').replace(':', '\\:')
+
+                command = [
+                    'ffmpeg',
+                    '-y',
+                    '-i', video_path,
+                    '-vf', f"subtitles={escaped_subtitle}",
+                    '-c:a', 'copy',
+                    output_path
+                ]
+
+            print(f"[FFmpeg] Command: {' '.join(command)}")
+
+            # Execute FFmpeg command
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+
+            if result.returncode != 0:
+                error_msg = f"FFmpeg subtitle error: {result.stderr}"
+                print(f"[FFmpeg] Error: {error_msg}")
+                raise CompositionError(error_msg)
+
+            print(f"[FFmpeg] Subtitles added successfully")
+            return output_path
+
+        except subprocess.TimeoutExpired:
+            raise CompositionError("Subtitle addition timed out after 5 minutes")
+        except Exception as e:
+            raise CompositionError(f"Failed to add subtitles: {str(e)}")

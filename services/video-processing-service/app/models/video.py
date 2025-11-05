@@ -38,6 +38,11 @@ class VideoRequest(BaseModel):
     media_type: str = Field(default="stock", description="Media type (stock or ai)")
     use_avatar: bool = Field(default=False, description="Whether to use AI avatar")
 
+    # Subtitle configuration
+    enable_subtitles: bool = Field(default=True, description="Whether to add subtitles to video")
+    subtitle_style: str = Field(default="standard", description="Subtitle style (standard, karaoke, word_highlight)")
+    subtitle_words_per_line: int = Field(default=5, description="Number of words per subtitle line (1-10)")
+
     @validator('aspect_ratio')
     def validate_aspect_ratio(cls, v):
         """Validate aspect_ratio is one of the supported values"""
