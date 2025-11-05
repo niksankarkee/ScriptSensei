@@ -20,9 +20,9 @@ export default function CreatePage() {
 
   const handleWizardSubmit = async (data: VideoWizardData) => {
     try {
-      // First, check if we need to generate a script from the idea
-      let scriptId = 'temp_script_id' // TODO: Generate from content service
-      let scriptContent = data.script
+      // Generate a unique script ID for this video generation request
+      const scriptId = `script_${crypto.randomUUID()}`
+      const scriptContent = data.script
 
       // If this is idea mode and we don't have a script yet, generate it
       if (wizardMode === 'idea' && !scriptContent) {
@@ -35,6 +35,14 @@ export default function CreatePage() {
       }
 
       // Create video with all wizard data
+      console.log('[CreatePage] 🎬 Submitting video generation request:', {
+        aspect_ratio: data.aspectRatio,
+        language: data.language,
+        voice_id: data.voiceId,
+        media_type: data.mediaType,
+        template: data.template,
+      })
+
       const response = await fetch('http://localhost:8012/api/v1/videos/generate', {
         method: 'POST',
         headers: {

@@ -194,6 +194,37 @@ class VideoGenerationService:
         except Exception as e:
             raise VideoGenerationError(f"Scene generation failed: {str(e)}") from e
 
+    def _get_audio_duration(self, audio_file: str) -> float:
+        """
+        Get the duration of an audio file using ffprobe
+
+        Args:
+            audio_file: Path to audio file
+
+        Returns:
+            Duration in seconds
+        """
+        import subprocess
+        try:
+            result = subprocess.run(
+                [
+                    'ffprobe',
+                    '-v', 'error',
+                    '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1',
+                    audio_file
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            duration = float(result.stdout.strip())
+            return duration
+        except Exception as e:
+            print(f"[VideoGen] Warning: Could not detect audio duration for {audio_file}: {e}")
+            # Return a default duration as fallback
+            return 5.0
+
     def _generate_audio_for_scenes(
         self,
         scenes: List[Scene],
@@ -211,7 +242,7 @@ class VideoGenerationService:
             progress_callback: Progress callback
 
         Returns:
-            Scenes with audio_file paths assigned
+            Scenes with audio_file paths assigned and durations updated to match audio
         """
         audio_dir = work_dir / "audio"
         audio_dir.mkdir(exist_ok=True)
@@ -232,6 +263,13 @@ class VideoGenerationService:
                 # Update scene with audio path
                 scene.audio_file = audio_path
 
+                # CRITICAL FIX: Update scene duration to match actual audio file duration
+                actual_duration = self._get_audio_duration(audio_path)
+                original_duration = scene.duration
+                scene.duration = actual_duration
+
+                print(f"[VideoGen] Scene {i + 1} duration: estimated={original_duration:.2f}s, actual={actual_duration:.2f}s")
+
                 # Update progress
                 scene_progress = 0.30 + (0.30 * (i + 1) / total_scenes)
                 self._update_progress(
@@ -244,6 +282,10 @@ class VideoGenerationService:
                 raise VideoGenerationError(
                     f"Audio generation failed for scene {i}: {str(e)}"
                 ) from e
+
+        # Log total video duration
+        total_duration = sum(scene.duration for scene in scenes)
+        print(f"[VideoGen] Total video duration after audio generation: {total_duration:.2f}s")
 
         return scenes
 

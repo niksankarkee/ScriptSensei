@@ -320,37 +320,139 @@ class FFmpegCompositor:
         width, height = map(int, config.resolution.split('x'))
         print(f"[FFmpeg] Parsed width x height: {width} x {height}")
 
-        # Generate Ken Burns effect for dynamic motion
-        ken_burns_filter = self._get_ken_burns_filter(width, height, segment.duration)
+        # Detect if input is video or image file
+        video_extensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv']
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
 
-        # Build FFmpeg command with Ken Burns effect
-        # -loop 1: Loop the image (required for zoompan)
-        # -i: Input image
-        # -i: Input audio
-        # -vf: Video filter with Ken Burns effect (zoom/pan)
-        # -c:v: Video codec
-        # -t: Duration
-        # -pix_fmt: Pixel format (yuv420p for compatibility)
-        # -shortest: End when shortest input ends
-        command = [
-            'ffmpeg',
-            '-y',  # Overwrite output file
-            '-loop', '1',  # Loop the image (required for zoompan)
-            '-i', segment.image_file,  # Input image
-            '-i', segment.audio_file,  # Input audio
-            '-vf', ken_burns_filter,  # Ken Burns effect (zoom + pan)
-            '-c:v', config.codec,  # Video codec
-            '-t', str(segment.duration),  # Duration
-            '-pix_fmt', 'yuv420p',  # Pixel format
-            '-c:a', config.audio_codec,  # Audio codec
-            '-b:a', config.audio_bitrate,  # Audio bitrate
-            '-b:v', config.bitrate,  # Video bitrate
-            '-preset', config.preset,  # Encoding preset
-            '-crf', str(config.crf),  # Quality
-            '-r', str(config.fps),  # Frame rate
-            '-shortest',  # End when shortest input ends
-            output_path
-        ]
+        file_ext = os.path.splitext(segment.image_file)[1].lower()
+        is_video_file = file_ext in video_extensions
+        is_image_file = file_ext in image_extensions
+
+        print(f"[FFmpeg] Input file: {segment.image_file}")
+        print(f"[FFmpeg] File extension: {file_ext}")
+        print(f"[FFmpeg] File type: {'VIDEO' if is_video_file else 'IMAGE' if is_image_file else 'UNKNOWN'}")
+
+        if is_video_file:
+            # Handle REAL VIDEO CLIP input
+            # Check if video has audio track using ffprobe
+            has_audio = False
+            try:
+                probe_cmd = [
+                    'ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                    '-show_entries', 'stream=codec_type', '-of', 'default=noprint_wrappers=1:nokey=1',
+                    segment.image_file
+                ]
+                result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=5)
+                has_audio = 'audio' in result.stdout.lower()
+                print(f"[FFmpeg] Video has audio track: {has_audio}")
+            except Exception as e:
+                print(f"[FFmpeg] Warning: Could not probe audio track: {e}, assuming no audio")
+                has_audio = False
+
+            if has_audio:
+                # Video HAS audio - mix it with voiceover
+                print(f"[FFmpeg] Using REAL VIDEO CLIP with mixed audio")
+                command = [
+                    'ffmpeg',
+                    '-y',  # Overwrite output file
+                    '-i', segment.image_file,  # Input video
+                    '-i', segment.audio_file,  # Input audio (voiceover)
+                    '-filter_complex',
+                    # Scale and crop video to target resolution
+                    f'[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}[v];'
+                    # Lower original video audio to 30% volume
+                    f'[0:a]volume=0.3[bg_audio];'
+                    # Voice at 100% volume
+                    f'[1:a]volume=1.0[voice];'
+                    # Mix both audio streams
+                    f'[bg_audio][voice]amix=inputs=2:duration=shortest[audio]',
+                    '-map', '[v]',  # Use filtered video
+                    '-map', '[audio]',  # Use mixed audio
+                    '-c:v', config.codec,  # Video codec
+                    '-t', str(segment.duration),  # Trim to duration
+                    '-pix_fmt', 'yuv420p',  # Pixel format
+                    '-c:a', config.audio_codec,  # Audio codec
+                    '-b:a', config.audio_bitrate,  # Audio bitrate
+                    '-b:v', config.bitrate,  # Video bitrate
+                    '-preset', config.preset,  # Encoding preset
+                    '-crf', str(config.crf),  # Quality
+                    '-r', str(config.fps),  # Frame rate
+                    output_path
+                ]
+            else:
+                # Video has NO audio - just use voiceover
+                print(f"[FFmpeg] Using REAL VIDEO CLIP with voiceover only (no original audio)")
+                command = [
+                    'ffmpeg',
+                    '-y',  # Overwrite output file
+                    '-i', segment.image_file,  # Input video
+                    '-i', segment.audio_file,  # Input audio (voiceover)
+                    '-filter_complex',
+                    # Scale and crop video to target resolution
+                    f'[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}[v]',
+                    '-map', '[v]',  # Use filtered video
+                    '-map', '1:a',  # Use voiceover audio only
+                    '-c:v', config.codec,  # Video codec
+                    '-t', str(segment.duration),  # Trim to duration
+                    '-pix_fmt', 'yuv420p',  # Pixel format
+                    '-c:a', config.audio_codec,  # Audio codec
+                    '-b:a', config.audio_bitrate,  # Audio bitrate
+                    '-b:v', config.bitrate,  # Video bitrate
+                    '-preset', config.preset,  # Encoding preset
+                    '-crf', str(config.crf),  # Quality
+                    '-r', str(config.fps),  # Frame rate
+                    output_path
+                ]
+
+        elif is_image_file:
+            # Handle STATIC IMAGE input with Ken Burns effect
+            print(f"[FFmpeg] Using STATIC IMAGE with Ken Burns effect")
+            ken_burns_filter = self._get_ken_burns_filter(width, height, segment.duration)
+
+            command = [
+                'ffmpeg',
+                '-y',  # Overwrite output file
+                '-loop', '1',  # Loop the image (required for zoompan)
+                '-i', segment.image_file,  # Input image
+                '-i', segment.audio_file,  # Input audio
+                '-vf', ken_burns_filter,  # Ken Burns effect (zoom + pan)
+                '-c:v', config.codec,  # Video codec
+                '-t', str(segment.duration),  # Duration
+                '-pix_fmt', 'yuv420p',  # Pixel format
+                '-c:a', config.audio_codec,  # Audio codec
+                '-b:a', config.audio_bitrate,  # Audio bitrate
+                '-b:v', config.bitrate,  # Video bitrate
+                '-preset', config.preset,  # Encoding preset
+                '-crf', str(config.crf),  # Quality
+                '-r', str(config.fps),  # Frame rate
+                '-shortest',  # End when shortest input ends
+                output_path
+            ]
+
+        else:
+            # Unknown file type - treat as image with fallback
+            print(f"[FFmpeg] WARNING: Unknown file type {file_ext}, treating as image")
+            ken_burns_filter = self._get_ken_burns_filter(width, height, segment.duration)
+
+            command = [
+                'ffmpeg',
+                '-y',
+                '-loop', '1',
+                '-i', segment.image_file,
+                '-i', segment.audio_file,
+                '-vf', ken_burns_filter,
+                '-c:v', config.codec,
+                '-t', str(segment.duration),
+                '-pix_fmt', 'yuv420p',
+                '-c:a', config.audio_codec,
+                '-b:a', config.audio_bitrate,
+                '-b:v', config.bitrate,
+                '-preset', config.preset,
+                '-crf', str(config.crf),
+                '-r', str(config.fps),
+                '-shortest',
+                output_path
+            ]
 
         return command
 

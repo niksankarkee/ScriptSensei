@@ -10,6 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import os
 import socketio
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from app.api.videos import router as videos_router
 from app.api.platforms import router as platforms_router

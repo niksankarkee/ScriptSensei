@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 
 
@@ -22,7 +22,7 @@ class VideoRequest(BaseModel):
     voice_provider: str = Field(default="azure", description="Voice provider (azure, elevenlabs, google)")
     background_music: Optional[str] = Field(None, description="Background music track ID")
     visual_style: str = Field(default="stock", description="Visual style (stock, ai_generated, template)")
-    aspect_ratio: str = Field(default="9:16", description="Video aspect ratio (9:16, 16:9, 1:1)")
+    aspect_ratio: str = Field(default="16:9", description="Video aspect ratio (9:16, 16:9, 1:1, 4:5)")
     resolution: str = Field(default="1080p", description="Video resolution (720p, 1080p, 4k)")
     user_id: Optional[str] = Field(None, description="User ID for tracking")
     title: Optional[str] = Field(None, description="Video title")
@@ -37,6 +37,14 @@ class VideoRequest(BaseModel):
     script_style: Optional[str] = Field(None, description="Script writing style description")
     media_type: str = Field(default="stock", description="Media type (stock or ai)")
     use_avatar: bool = Field(default=False, description="Whether to use AI avatar")
+
+    @validator('aspect_ratio')
+    def validate_aspect_ratio(cls, v):
+        """Validate aspect_ratio is one of the supported values"""
+        valid_ratios = ['16:9', '9:16', '1:1', '4:5']
+        if v not in valid_ratios:
+            raise ValueError(f"aspect_ratio must be one of {valid_ratios}, got: {v}")
+        return v
 
 
 class VideoScene(BaseModel):

@@ -29,6 +29,7 @@ class Scene:
         text: The text/narration for this scene
         duration: Duration in seconds
         image_path: Path to the image file for this scene
+        audio_file: Path to the audio file for this scene (optional)
         transition_type: Transition effect to next scene
         start_time: Start time in the video (optional)
         end_time: End time in the video (optional)
@@ -38,6 +39,7 @@ class Scene:
     text: str
     duration: float = 0.0
     image_path: Optional[str] = None
+    audio_file: Optional[str] = None
     transition_type: str = "cut"
     start_time: Optional[float] = None
     end_time: Optional[float] = None
@@ -264,51 +266,76 @@ class VideoSceneRenderer:
     def assign_images_to_scenes(
         self,
         scenes: List[Scene],
-        custom_images: Optional[List[str]] = None
+        custom_images: Optional[List[str]] = None,
+        use_video_stock: bool = True
     ) -> List[Scene]:
         """
-        Assign images to each scene
+        Assign images or videos to each scene
 
         Args:
             scenes: List of Scene objects
-            custom_images: Optional list of custom image paths
+            custom_images: Optional list of custom image/video paths
+            use_video_stock: If True, fetch real video clips; if False, use static images
 
         Returns:
-            Scenes with images assigned
+            Scenes with images/videos assigned
 
         Raises:
-            TimeoutError: If image fetching times out
+            TimeoutError: If image/video fetching times out
         """
         if custom_images:
-            # Use custom images provided by user
+            # Use custom images/videos provided by user
             for i, scene in enumerate(scenes):
                 if i < len(custom_images):
                     scene.image_path = custom_images[i]
                 else:
-                    # Reuse images if not enough provided
+                    # Reuse images/videos if not enough provided
                     scene.image_path = custom_images[i % len(custom_images)]
         else:
-            # Use image provider to fetch images
+            # Use video stock provider to fetch REAL VIDEO CLIPS
             try:
-                from app.services.image_provider import ImageProvider
-                provider = ImageProvider()
+                from app.services.video_stock_provider import VideoStockProvider
+                provider = VideoStockProvider()
 
                 for scene in scenes:
                     try:
-                        # Get image based on scene text
-                        image_path = provider.get_image(scene.text)
-                        scene.image_path = image_path
+                        # Get REAL VIDEO CLIP based on scene text
+                        video_path = provider.get_video(
+                            text=scene.text,
+                            use_video_stock=use_video_stock
+                        )
+                        scene.image_path = video_path  # Actually a video file now (.mp4)
                     except TimeoutError:
                         # Re-raise timeout errors
                         raise
-                    except Exception:
-                        # Fallback to placeholder if provider fails
-                        scene.image_path = self._get_placeholder_image()
+                    except Exception as e:
+                        print(f"[SceneRenderer] Video fetch failed: {e}, falling back to images")
+                        # Fallback to image provider if video fails
+                        try:
+                            from app.services.image_provider import ImageProvider
+                            image_provider = ImageProvider()
+                            image_path = image_provider.get_image(scene.text)
+                            scene.image_path = image_path
+                        except Exception:
+                            # Ultimate fallback to placeholder
+                            scene.image_path = self._get_placeholder_image()
 
             except ImportError:
-                # If image provider doesn't exist, use placeholder
-                for scene in scenes:
-                    scene.image_path = self._get_placeholder_image()
+                # If video stock provider doesn't exist, fallback to images
+                print("[SceneRenderer] VideoStockProvider not available, using images")
+                try:
+                    from app.services.image_provider import ImageProvider
+                    provider = ImageProvider()
+                    for scene in scenes:
+                        try:
+                            image_path = provider.get_image(scene.text)
+                            scene.image_path = image_path
+                        except Exception:
+                            scene.image_path = self._get_placeholder_image()
+                except ImportError:
+                    # Final fallback to placeholder
+                    for scene in scenes:
+                        scene.image_path = self._get_placeholder_image()
 
         return scenes
 
