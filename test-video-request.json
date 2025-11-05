@@ -1,0 +1,10 @@
+{
+  "user_id": "user_123",
+  "script_id": "test_script_1",
+  "script_content": "Welcome to ScriptSensei. This is a test of our new audio generation feature.",
+  "title": "Audio Test Video",
+  "platform": "youtube",
+  "duration": 10,
+  "language": "en",
+  "voice_id": "en-US-JennyNeural"
+}

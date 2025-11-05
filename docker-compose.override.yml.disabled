@@ -1,0 +1,16 @@
+# Docker Compose Override
+# This file overrides docker-compose.yml to use existing PostgreSQL and Redis from restosaas project
+# Avoids port conflicts by disabling duplicate services
+
+services:
+  # Disable scriptsensei-postgres (using restosaas_db instead)
+  postgres:
+    deploy:
+      replicas: 0
+    ports: []
+
+  # Disable scriptsensei-redis (using restosaas_redis instead)
+  redis:
+    deploy:
+      replicas: 0
+    ports: []

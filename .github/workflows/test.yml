@@ -1,0 +1,391 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  GO_VERSION: '1.21'
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  # Go services tests
+  test-go-services:
+    name: Test Go Services
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - auth-service
+          - content-service
+          - voice-service
+          - trend-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          go mod download
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          go install gotest.tools/gotestsum@latest
+
+      - name: Run linter
+        working-directory: ./services/${{ matrix.service }}
+        run: golangci-lint run --timeout=5m
+
+      - name: Run unit tests
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          gotestsum --format testname --junitfile report.xml -- \
+            -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Check coverage
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "❌ Coverage ${COVERAGE}% is below 80% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets 80% threshold"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./services/${{ matrix.service }}/coverage.out
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.service }}-test-results
+          path: ./services/${{ matrix.service }}/report.xml
+
+  # Python services tests
+  test-python-services:
+    name: Test Python Services
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - video-processing-service
+          - analytics-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-mock black flake8 mypy
+
+      - name: Run linter (black)
+        working-directory: ./services/${{ matrix.service }}
+        run: black --check .
+
+      - name: Run linter (flake8)
+        working-directory: ./services/${{ matrix.service }}
+        run: flake8 . --max-line-length=100 --exclude=venv,__pycache__
+
+      - name: Run type checker (mypy)
+        working-directory: ./services/${{ matrix.service }}
+        run: mypy . --ignore-missing-imports || true  # Warning only for now
+
+      - name: Run unit tests
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          pytest tests/ \
+            -v \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=report.xml
+
+      - name: Check coverage
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(float(root.attrib['line-rate']) * 100)")
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "❌ Coverage ${COVERAGE}% is below 80% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets 80% threshold"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./services/${{ matrix.service }}/coverage.xml
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.service }}-test-results
+          path: ./services/${{ matrix.service }}/report.xml
+
+  # Node.js services tests
+  test-node-services:
+    name: Test Node.js Services
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - translation-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache npm packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        working-directory: ./services/${{ matrix.service }}
+        run: npm ci
+
+      - name: Run linter
+        working-directory: ./services/${{ matrix.service }}
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: ./services/${{ matrix.service }}
+        run: npm run test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+
+      - name: Check coverage
+        working-directory: ./services/${{ matrix.service }}
+        run: |
+          COVERAGE=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "❌ Coverage ${COVERAGE}% is below 80% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets 80% threshold"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./services/${{ matrix.service }}/coverage/coverage-final.json
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
+
+  # Frontend tests
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache npm packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run linter
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Run type check
+        working-directory: ./frontend
+        run: npm run type-check || npx tsc --noEmit
+
+      - name: Run unit tests
+        working-directory: ./frontend
+        run: npm run test -- --coverage --passWithNoTests
+
+      - name: Check coverage
+        working-directory: ./frontend
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            COVERAGE=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
+            echo "Coverage: ${COVERAGE}%"
+            if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+              echo "⚠️  Coverage ${COVERAGE}% is below 80% threshold"
+              # Don't fail for frontend yet, just warn
+            else
+              echo "✅ Coverage ${COVERAGE}% meets 80% threshold"
+            fi
+          else
+            echo "⚠️  No coverage report found"
+          fi
+
+      - name: Build
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./frontend/coverage/coverage-final.json
+          flags: frontend
+          name: frontend-coverage
+
+  # E2E tests
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [test-go-services, test-python-services, test-node-services]
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: scriptsensei
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      kong:
+        image: kong:3.4-alpine
+        env:
+          KONG_DATABASE: "off"
+          KONG_PROXY_LISTEN: 0.0.0.0:8000
+          KONG_ADMIN_LISTEN: 0.0.0.0:8001
+        ports:
+          - 8000:8000
+          - 8001:8001
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Start services
+        run: |
+          # Start all microservices in background
+          # This would be replaced with docker-compose in real scenario
+          echo "Starting microservices..."
+
+      - name: Configure Kong
+        run: |
+          chmod +x ./scripts/configure-kong.sh
+          ./scripts/configure-kong.sh
+
+      - name: Run E2E tests
+        run: |
+          # Run E2E tests for each service
+          cd services/auth-service
+          go test -v -tags=e2e ./tests/e2e/...
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: |
+            **/e2e-report.xml
+
+  # Summary job
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-go-services, test-python-services, test-node-services, test-frontend, test-e2e]
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          echo "🧪 All test jobs completed!"
+          echo "✅ Go services tests: ${{ needs.test-go-services.result }}"
+          echo "✅ Python services tests: ${{ needs.test-python-services.result }}"
+          echo "✅ Node.js services tests: ${{ needs.test-node-services.result }}"
+          echo "✅ Frontend tests: ${{ needs.test-frontend.result }}"
+          echo "✅ E2E tests: ${{ needs.test-e2e.result }}"
+
+          if [ "${{ needs.test-go-services.result }}" != "success" ] || \
+             [ "${{ needs.test-python-services.result }}" != "success" ] || \
+             [ "${{ needs.test-node-services.result }}" != "success" ] || \
+             [ "${{ needs.test-e2e.result }}" != "success" ]; then
+            echo "❌ Some tests failed!"
+            exit 1
+          fi
+
+          echo "✅ All tests passed!"

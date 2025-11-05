@@ -1,0 +1,129 @@
+# Prometheus Configuration for ScriptSensei
+# Monitors all microservices and infrastructure components
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'scriptsensei-dev'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Content Service (Go)
+  - job_name: 'content-service'
+    static_configs:
+      - targets: ['host.docker.internal:8011']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Video Processing Service (Python)
+  - job_name: 'video-processing-service'
+    static_configs:
+      - targets: ['host.docker.internal:8012']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Voice Service (Go)
+  - job_name: 'voice-service'
+    static_configs:
+      - targets: ['host.docker.internal:8013']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Translation Service (Node.js)
+  - job_name: 'translation-service'
+    static_configs:
+      - targets: ['host.docker.internal:8014']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Analytics Service (Go)
+  - job_name: 'analytics-service'
+    static_configs:
+      - targets: ['host.docker.internal:8015']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Trend Service (Python)
+  - job_name: 'trend-service'
+    static_configs:
+      - targets: ['host.docker.internal:8016']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Auth Service (Go)
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['host.docker.internal:8010']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Infrastructure Services
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['scriptsensei-postgres:5432']
+    scrape_interval: 30s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['scriptsensei-redis:6379']
+    scrape_interval: 30s
+
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['scriptsensei-mongodb:27017']
+    scrape_interval: 30s
+
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['scriptsensei-rabbitmq:15692']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['scriptsensei-elasticsearch:9200']
+    metrics_path: '/_prometheus/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'kong'
+    static_configs:
+      - targets: ['kong:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['scriptsensei-minio:9000']
+    metrics_path: '/minio/v2/metrics/cluster'
+    scrape_interval: 30s
+
+  # Node Exporter (if added later)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: []
+        # - node-exporter:9100
+
+  # cAdvisor for container metrics (if added later)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: []
+        # - cadvisor:8080
